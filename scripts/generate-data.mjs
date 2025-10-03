@@ -9,11 +9,13 @@ async function getData() {
 	const files = await fs.readdir(DATA_DIRECTORY);
 	const environments = files.map(file => path.basename(file, '.mjs'))
 		.sort((a, b) => a.localeCompare(b));
+
+	// Use Promise.all for parallel loading and build object directly
 	const data = await Promise.all(
-		environments.map(async environment => ({environment, globals: await readGlobals(environment)})),
+		environments.map(async environment => [environment, await readGlobals(environment)]),
 	);
 
-	return Object.fromEntries(data.map(({environment, globals}) => [environment, globals]));
+	return Object.fromEntries(data);
 }
 
 const data = await getData();

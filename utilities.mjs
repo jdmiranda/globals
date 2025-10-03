@@ -1,6 +1,14 @@
 const DATA_DIRECTORY = new URL('data/', import.meta.url);
 
+// Cache for readGlobals to avoid re-importing the same files
+const globalsCache = new Map();
+
 const readGlobals = async (environment, {ignoreNonExits} = {}) => {
+	// Check cache first
+	if (globalsCache.has(environment)) {
+		return globalsCache.get(environment);
+	}
+
 	const file = new URL(`${environment}.mjs`, DATA_DIRECTORY);
 	file.searchParams.set('ts', Date.now());
 
@@ -16,41 +24,58 @@ const readGlobals = async (environment, {ignoreNonExits} = {}) => {
 		throw error;
 	}
 
+	// Cache the result
+	globalsCache.set(environment, data);
 	return data;
 };
 
-const sortObject = object =>
-	Object.fromEntries(
-		Object.entries(object).sort(([propertyA], [propertyB]) =>
-			propertyA.localeCompare(propertyB),
-		),
-	);
+const sortObject = object => {
+	// Pre-sort keys, then build object - faster than sorting entries
+	const sortedKeys = Object.keys(object).sort((a, b) => a.localeCompare(b));
+	const result = {};
+	for (const key of sortedKeys) {
+		result[key] = object[key];
+	}
+
+	return result;
+};
 
 function unique(array) {
 	return [...new Set(array)];
 }
 
 function mergeGlobals(globalsA, globalsB) {
-	const existsInA = Object.keys(globalsB).filter(name => Object.hasOwn(globalsA, name));
-	if (existsInA.length > 0) {
-		throw new Error(`Already exits:\n${existsInA.map(name => ` - ${name}`).join('\n')}`);
+	// Use Map for O(1) lookups instead of O(n) array operations
+	const keysA = new Set(Object.keys(globalsA));
+	const keysB = new Set(Object.keys(globalsB));
+
+	// Find duplicates more efficiently
+	const duplicates = [];
+	for (const key of keysB) {
+		if (keysA.has(key)) {
+			duplicates.push(key);
+		}
 	}
 
-	const existsInB = Object.keys(globalsA).filter(name => Object.hasOwn(globalsB, name));
-	if (existsInB.length > 0) {
-		throw new Error(`Already exits:\n${existsInB.map(name => ` - ${name}`).join('\n')}`);
+	if (duplicates.length > 0) {
+		throw new Error(`Already exits:\n${duplicates.map(name => ` - ${name}`).join('\n')}`);
 	}
 
 	return sortObject({...globalsA, ...globalsB});
 }
 
 function getIntersectionGlobals(globalsA, globalsB) {
-	return sortObject(
-		Object.fromEntries([
-			...Object.entries(globalsA).filter(([name]) => Object.hasOwn(globalsB, name)),
-			...Object.entries(globalsB).filter(([name]) => Object.hasOwn(globalsA, name)),
-		]),
-	);
+	// Use Set for O(1) lookups and avoid duplicate iterations
+	const keysA = new Set(Object.keys(globalsA));
+	const intersection = {};
+
+	for (const [key, value] of Object.entries(globalsB)) {
+		if (keysA.has(key)) {
+			intersection[key] = value;
+		}
+	}
+
+	return sortObject(intersection);
 }
 
 export {
